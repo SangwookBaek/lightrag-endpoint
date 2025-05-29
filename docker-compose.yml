@@ -1,0 +1,78 @@
+version: '3.8'
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg15
+    container_name: postgres
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB:      ${POSTGRES_DB}
+      POSTGRES_USER:    ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5434:5432"
+    volumes:
+      # Postgres 데이터 디렉토리 (내부 경로 고정)
+      - ./data/pgdata:/var/lib/postgresql/data
+      # 초기화 SQL / 쉘 스크립트
+      - ./data/init:/docker-entrypoint-initdb.d
+
+    networks:
+      - lightrag_net
+
+  dozerdb:
+    image: graphstack/dozerdb:5.26.3.0
+    container_name: dozerdb
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/ossca2727
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_dbms_security_procedures_unrestricted=*
+    volumes:
+      - ./lightrag/dbinterface/lightrag_neo4j_data:/data
+      - ./lightrag/dbinterface/lightrag_neo4j_logs:/logs
+      - ./lightrag/dbinterface/lightrag_neo4j_import:/var/lib/neo4j/import
+      - ./lightrag/dbinterface/plugins:/plugins
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - lightrag_net
+  lightrag:
+    container_name: lightrag
+    build: .
+    ports:
+      - "${PORT:-9621}:9621"
+      - "8888:8888"
+      - "2727:2727"
+    volumes:
+      - ./data/rag_storage:/app/data/rag_storage
+      - ./data/inputs:/app/data/inputs
+      - ./config.ini:/app/config.ini
+      - ./.env:/app/.env
+
+      
+    env_file:
+      - .env
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - dozerdb
+      - postgres
+    networks:
+      - lightrag_net
+
+volumes:
+  pgdata:
+  lightrag_neo4j_data:
+  lightrag_neo4j_logs:
+  lightrag_neo4j_import:
+
+networks:
+  lightrag_net:
+    driver: bridge
